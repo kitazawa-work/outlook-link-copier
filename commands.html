@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>Outlook Link Copier Commands</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  "use strict";
+
+  function buildMailLink() {
+    const mailbox = Office.context.mailbox;
+    const item = mailbox && mailbox.item;
+
+    if (!item || !item.itemId) {
+      throw new Error("メールIDを取得できません。メールを1通開いてください。");
+    }
+
+    const restId = mailbox.convertToRestId(
+      item.itemId,
+      Office.MailboxEnums.RestVersion.v2_0
+    );
+
+    if (!restId) {
+      throw new Error("メールIDの変換に失敗しました。");
+    }
+
+    return "https://outlook.office365.com/owa/?ItemID="
+      + encodeURIComponent(restId)
+      + "&exvsurl=1&viewmodel=ReadMessageItem";
+  }
+
+  async function copyWithClipboardApi(text) {
+    if (!navigator.clipboard || !window.isSecureContext) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function copyWithExecCommand(text) {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      area.style.top = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      area.setSelectionRange(0, area.value.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(area);
+      return !!ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function notify(message, type) {
+    try {
+      const item = Office.context.mailbox.item;
+      if (!item || !item.notificationMessages) return;
+      item.notificationMessages.replaceAsync(
+        "outlook-link-copier-status",
+        {
+          type: type === "error"
+            ? Office.MailboxEnums.ItemNotificationMessageType.ErrorMessage
+            : Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+          message: message,
+          icon: "Icon.16",
+          persistent: false
+        },
+        function () {}
+      );
+    } catch (_) {}
+  }
+
+  async function copyMailLink(event) {
+    try {
+      const url = buildMailLink();
+
+      let copied = await copyWithClipboardApi(url);
+      if (!copied) copied = copyWithExecCommand(url);
+
+      if (copied) {
+        notify("メールリンクをコピーしました", "info");
+      } else {
+        notify("コピーできませんでした。Outlook Link Copier の画面版を使用してください。", "error");
+      }
+    } catch (e) {
+      notify(e && e.message ? e.message : "メールリンクの作成に失敗しました。", "error");
+    } finally {
+      event.completed();
+    }
+  }
+
+  Office.onReady(function () {
+    if (Office.actions && Office.actions.associate) {
+      Office.actions.associate("copyMailLink", copyMailLink);
+    } else {
+      window.copyMailLink = copyMailLink;
+    }
+  });
+
+  // Older clients can resolve the function from global scope.
+  window.copyMailLink = copyMailLink;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Outlook Link Copier</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 18px;
+      font-family: "Meiryo UI", "Yu Gothic UI", sans-serif;
+      background: #fff;
+      color: #222;
+    }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { margin: 6px 0 12px; font-size: 13px; line-height: 1.55; }
+    button {
+      width: 100%;
+      min-height: 44px;
+      border: 0;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #0f6cbd;
+      color: white;
+    }
+    button:hover { filter: brightness(.96); }
+    button:disabled { opacity: .55; cursor: default; }
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      margin-top: 12px;
+      resize: vertical;
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      min-height: 20px;
+    }
+    .ok { color: #107c10; }
+    .error { color: #a80000; }
+    .note { color: #666; font-size: 11px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>メールリンク</h1>
+  <p>現在開いているメールのOutlook Web直リンクを作成します。</p>
+
+  <button id="copyButton" type="button" disabled>リンクをコピー</button>
+  <div id="status">Outlookを確認しています…</div>
+  <textarea id="urlBox" readonly aria-label="Outlook Web link"></textarea>
+  <div class="note">Microsoft Graphへの追加ログインは使いません。Outlook内の現在のメールIDからリンクを作成します。</div>
+
+<script>
+(function () {
+  const copyButton = document.getElementById("copyButton");
+  const urlBox = document.getElementById("urlBox");
+  const status = document.getElementById("status");
+
+  function setStatus(message, cssClass) {
+    status.textContent = message;
+    status.className = cssClass || "";
+  }
+
+  function buildLink() {
+    const mailbox = Office.context.mailbox;
+    const item = mailbox && mailbox.item;
+
+    if (!item || !item.itemId) {
+      throw new Error("メールIDを取得できません。閲覧中のメールを1通選択してください。");
+    }
+
+    const restId = mailbox.convertToRestId(
+      item.itemId,
+      Office.MailboxEnums.RestVersion.v2_0
+    );
+
+    if (!restId) {
+      throw new Error("メールIDの変換に失敗しました。");
+    }
+
+    return "https://outlook.office365.com/owa/?ItemID="
+      + encodeURIComponent(restId)
+      + "&exvsurl=1&viewmodel=ReadMessageItem";
+  }
+
+  function refresh() {
+    try {
+      const url = buildLink();
+      urlBox.value = url;
+      copyButton.disabled = false;
+      setStatus("準備OK", "ok");
+    } catch (e) {
+      urlBox.value = "";
+      copyButton.disabled = true;
+      setStatus(e.message || String(e), "error");
+    }
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+
+    urlBox.focus();
+    urlBox.select();
+    urlBox.setSelectionRange(0, urlBox.value.length);
+    return document.execCommand("copy");
+  }
+
+  copyButton.addEventListener("click", async function () {
+    try {
+      refresh();
+      if (!urlBox.value) return;
+      const ok = await copyText(urlBox.value);
+      setStatus(ok ? "コピーしました" : "コピーできませんでした。下のURLを Ctrl+C してください。",
+                ok ? "ok" : "error");
+    } catch (e) {
+      setStatus(e.message || String(e), "error");
+    }
+  });
+
+  Office.onReady(function (info) {
+    if (info.host !== Office.HostType.Outlook) {
+      setStatus("Outlook内で開いてください。", "error");
+      return;
+    }
+    refresh();
+
+    // ピン留め等でメールが切り替わった場合に備えて、利用可能なら自動更新。
+    try {
+      Office.context.mailbox.addHandlerAsync(Office.EventType.ItemChanged, refresh);
+    } catch (_) {}
+  });
+})();
+</script>
+</body>
+</html>
